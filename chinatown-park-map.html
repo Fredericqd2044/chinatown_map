@@ -176,14 +176,47 @@
             left: 0;
             top: 0;
             bottom: 0;
-            width: 5px;
+            width: 15px; /* Wider for better touch */
             cursor: ew-resize;
-            background: transparent;
+            background: rgba(52, 152, 219, 0.2);
             z-index: 10;
+            touch-action: none; /* Critical for touch devices */
+            -webkit-touch-callout: none; /* Disable iOS callout */
+            -webkit-user-select: none;
+            user-select: none;
         }
 
-        .sidebar-resize-handle:hover {
-            background: rgba(52, 152, 219, 0.3);
+        .sidebar-resize-handle:hover,
+        .sidebar-resize-handle:active {
+            background: rgba(52, 152, 219, 0.4);
+        }
+
+        /* Visual grip indicator */
+        .sidebar-resize-handle::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 50px;
+            background: rgba(52, 152, 219, 0.6);
+            border-radius: 2px;
+            pointer-events: none;
+        }
+
+        /* Larger touch target on mobile */
+        @media (max-width: 768px) {
+            .sidebar-resize-handle {
+                width: 20px;
+                background: rgba(52, 152, 219, 0.3);
+            }
+
+            .sidebar-resize-handle::before {
+                width: 5px;
+                height: 60px;
+                background: rgba(52, 152, 219, 0.8);
+            }
         }
 
         .sidebar.resizing {
@@ -1055,30 +1088,53 @@
             }
         });
 
-        // Sidebar resize functionality
+        // Sidebar resize functionality (supports both mouse and touch)
         const resizeHandle = document.getElementById('sidebarResizeHandle');
         let isResizing = false;
         let startX = 0;
         let startWidth = 0;
 
-        resizeHandle.addEventListener('mousedown', (e) => {
+        // Helper function to get X position from mouse or touch event
+        function getClientX(e) {
+            if (e.touches && e.touches.length > 0) {
+                return e.touches[0].clientX;
+            } else if (e.changedTouches && e.changedTouches.length > 0) {
+                return e.changedTouches[0].clientX;
+            }
+            return e.clientX;
+        }
+
+        // Start resizing
+        function startResize(e) {
             isResizing = true;
-            startX = e.clientX;
+            startX = getClientX(e);
             startWidth = sidebar.offsetWidth;
             sidebar.classList.add('resizing');
             document.body.style.cursor = 'ew-resize';
-            e.preventDefault();
-        });
 
-        document.addEventListener('mousemove', (e) => {
+            // Prevent scrolling and other touch behaviors
+            if (e.type === 'touchstart') {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }
+
+        // Handle resize movement
+        function handleResize(e) {
             if (!isResizing) return;
 
-            // Calculate new width (drag left to make wider, right to make narrower)
-            const deltaX = startX - e.clientX;
+            // Prevent scrolling while dragging
+            if (e.type === 'touchmove') {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            const currentX = getClientX(e);
+            const deltaX = startX - currentX;
             const newWidth = startWidth + deltaX;
 
             // Apply constraints
-            const minWidth = 0; // Allow to go to 0
+            const minWidth = 0;
             const maxWidth = 600;
             const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
 
@@ -1093,15 +1149,27 @@
                 sidebar.style.width = constrainedWidth + 'px';
                 sidebarToggle.classList.remove('visible');
             }
-        });
+        }
 
-        document.addEventListener('mouseup', () => {
+        // Stop resizing
+        function stopResize() {
             if (isResizing) {
                 isResizing = false;
                 sidebar.classList.remove('resizing');
                 document.body.style.cursor = '';
             }
-        });
+        }
+
+        // Mouse events
+        resizeHandle.addEventListener('mousedown', startResize);
+        document.addEventListener('mousemove', handleResize);
+        document.addEventListener('mouseup', stopResize);
+
+        // Touch events for mobile (iPhone/Android)
+        resizeHandle.addEventListener('touchstart', startResize, { passive: false });
+        document.addEventListener('touchmove', handleResize, { passive: false });
+        document.addEventListener('touchend', stopResize, { passive: false });
+        document.addEventListener('touchcancel', stopResize, { passive: false });
     </script>
 </body>
 
