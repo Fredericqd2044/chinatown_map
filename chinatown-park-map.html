@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chinatown Park Interactive Map</title>
+
+    <!-- Mapbox GL JS -->
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css' rel='stylesheet' />
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js'></script>
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Configuration -->
+    <script src="config.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: #f5f5f5;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+        }
+
+        .mode-toggle {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .mode-btn {
+            padding: 0.5rem 1.5rem;
+            border: 2px solid white;
+            background: transparent;
+            color: white;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        .mode-btn.active {
+            background: white;
+            color: #2c3e50;
+        }
+
+        .mode-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .mode-btn.active:hover {
+            background: white;
+        }
+
+        .container {
+            display: flex;
+            height: calc(100vh - 70px);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .map-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mapbox-map {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .pin {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+            transition: all 0.3s;
+            z-index: 10;
+        }
+
+        .pin:hover {
+            transform: translate(-50%, -50%) scale(1.2);
+        }
+
+        .pin.highlighted {
+            transform: translate(-50%, -50%) scale(1.4);
+            z-index: 20;
+            filter: drop-shadow(0 0 8px rgba(231, 76, 60, 0.8));
+        }
+
+        .pin.active {
+            z-index: 100 !important;
+        }
+
+        .pin svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .pin.has-photo {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 3px solid #e74c3c;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            background: white;
+        }
+
+        .pin.has-photo:hover {
+            transform: translate(-50%, -50%) scale(1.2);
+            border-color: #c0392b;
+        }
+
+        .pin.has-photo.highlighted {
+            transform: translate(-50%, -50%) scale(1.4);
+            border-color: #e74c3c;
+            border-width: 4px;
+            filter: drop-shadow(0 0 10px rgba(231, 76, 60, 0.8));
+        }
+
+        .pin.has-photo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .sidebar {
+            width: 220px;
+            min-width: 200px;
+            max-width: 600px;
+            background: white;
+            box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .sidebar.visible {
+            display: flex;
+        }
+
+        .sidebar-resize-handle {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 5px;
+            cursor: ew-resize;
+            background: transparent;
+            z-index: 10;
+        }
+
+        .sidebar-resize-handle:hover {
+            background: rgba(52, 152, 219, 0.3);
+        }
+
+        .sidebar.resizing {
+            user-select: none;
+        }
+
+        .sidebar-header {
+            padding: 0.7rem;
+            background: #34495e;
+            color: white;
+            font-size: 0.95rem;
+            font-weight: bold;
+        }
+
+        .pins-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+
+        .pin-card {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .pin-card:hover {
+            border-color: #3498db;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.2);
+        }
+
+        .pin-card.highlighted {
+            border-color: #e74c3c;
+            background: #fff5f5;
+            box-shadow: 0 2px 8px rgba(231, 76, 60, 0.3);
+        }
+
+        .pin-card h3 {
+            color: #2c3e50;
+            margin-bottom: 0.3rem;
+            font-size: 0.9rem;
+        }
+
+        .pin-card p {
+            color: #666;
+            font-size: 0.75rem;
+            line-height: 1.3;
+            margin-bottom: 0.3rem;
+        }
+
+        .pin-card img {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+        }
+
+        .pin-card .action-buttons {
+            display: flex;
+            gap: 0.3rem;
+            margin-top: 0.3rem;
+        }
+
+        .pin-card .edit-btn,
+        .pin-card .delete-btn {
+            color: white;
+            border: none;
+            padding: 0.3rem 0.6rem;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            flex: 1;
+        }
+
+        .pin-card .edit-btn {
+            background: #3498db;
+        }
+
+        .pin-card .edit-btn:hover {
+            background: #2980b9;
+        }
+
+        .pin-card .delete-btn {
+            background: #e74c3c;
+        }
+
+        .pin-card .delete-btn:hover {
+            background: #c0392b;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 1rem;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
+        .form-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 1000;
+            pointer-events: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .form-modal.active {
+            display: flex;
+            pointer-events: auto;
+        }
+
+        .form-content {
+            background: white;
+            padding: 0.7rem;
+            border-radius: 6px;
+            width: 280px;
+            max-width: 90vw;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .form-content h2 {
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+            font-size: 1rem;
+        }
+
+        .form-group {
+            margin-bottom: 0.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.25rem;
+            color: #2c3e50;
+            font-weight: 500;
+            font-size: 0.8rem;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.35rem;
+            border: 2px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: inherit;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 40px;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 0.4rem;
+            justify-content: flex-end;
+            margin-top: 0.4rem;
+        }
+
+        .btn {
+            padding: 0.35rem 0.7rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .mode-indicator {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            z-index: 100;
+        }
+
+        .sidebar-toggle {
+            position: fixed;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.8rem 0.5rem;
+            border-radius: 4px 0 0 4px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            z-index: 50;
+            box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s;
+            display: none;
+        }
+
+        .sidebar-toggle.visible {
+            display: block;
+        }
+
+        .sidebar-toggle:hover {
+            background: #2980b9;
+            padding-right: 0.7rem;
+        }
+
+        .map-placeholder {
+            width: 800px;
+            height: 600px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.5rem;
+            text-align: center;
+            padding: 2rem;
+            border-radius: 8px;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            max-height: 80px;
+            margin-top: 0.3rem;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+
+        /* Mapbox Popup Styling */
+        .mapboxgl-popup {
+            z-index: 1000 !important;
+        }
+
+        .mapboxgl-popup-content {
+            padding: 0;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            min-width: 250px;
+            max-width: 300px;
+            z-index: 1001 !important;
+        }
+
+        .popup-content {
+            padding: 1rem;
+        }
+
+        .popup-content h3 {
+            margin: 0 0 0.5rem 0;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+
+        .popup-content p {
+            margin: 0;
+            color: #666;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .popup-content img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            margin-bottom: 0.75rem;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .mapboxgl-popup-close-button {
+            font-size: 20px;
+            padding: 0.5rem;
+            color: #666;
+        }
+
+        .mapboxgl-popup-close-button:hover {
+            background: rgba(0, 0, 0, 0.05);
+            color: #2c3e50;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>Chinatown Park Interactive Map</h1>
+        <div class="mode-toggle">
+            <button class="mode-btn active" data-mode="add">Add Mode</button>
+            <button class="mode-btn" data-mode="browse">Browse Mode</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="map-container" id="mapContainer">
+            <div id="map" class="mapbox-map"></div>
+        </div>
+
+        <div class="sidebar">
+            <div class="sidebar-resize-handle" id="sidebarResizeHandle"></div>
+            <div class="sidebar-header">Saved Locations</div>
+            <div class="pins-list" id="pinsList">
+                <div class="empty-state">No locations saved yet. Switch to Add Mode and click on the map to add a pin!
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mode-indicator" id="modeIndicator">
+        <strong>Add Mode:</strong> Click anywhere on the map to add a pin
+    </div>
+
+    <button class="sidebar-toggle" id="sidebarToggle" title="Show sidebar">◀</button>
+
+    <div class="form-modal" id="formModal">
+        <div class="form-content">
+            <h2 id="formTitle">Post whatever you want!</h2>
+            <form id="pinForm">
+                <div class="form-group">
+                    <label for="pinName">User Name *</label>
+                    <input type="text" id="pinName" required>
+                </div>
+                <div class="form-group">
+                    <label for="pinDescription">Description</label>
+                    <textarea id="pinDescription"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="pinPhoto">Upload Photo</label>
+                    <input type="file" id="pinPhoto" accept="image/*">
+                    <img id="imagePreview" class="image-preview" style="display: none;">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Location</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Connect to Supabase using config
+        const { createClient } = supabase;
+        const db = createClient(CONFIG.supabase.url, CONFIG.supabase.anonKey);
+        console.log('Supabase client initialized:', db);
+
+        // App State
+        let currentMode = 'browse';
+        let pins = [];
+        let tempPinPosition = null;
+        let highlightedPinId = null;
+        let markers = []; // Store Mapbox marker instances
+        let editingPinId = null; // Track which pin is being edited
+
+        // Elements
+        const mapContainer = document.getElementById('mapContainer');
+        const sidebar = document.querySelector('.sidebar');
+        const pinsList = document.getElementById('pinsList');
+        const formModal = document.getElementById('formModal');
+        const pinForm = document.getElementById('pinForm');
+        const formTitle = document.getElementById('formTitle');
+        const modeIndicator = document.getElementById('modeIndicator');
+        const modeBtns = document.querySelectorAll('.mode-btn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const photoInput = document.getElementById('pinPhoto');
+        const imagePreview = document.getElementById('imagePreview');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+
+        // Test Supabase connection
+        async function testConnection() {
+            console.log('Testing Supabase connection...');
+            try {
+                const { data, error } = await db.from('pins').select('*').limit(1);
+                console.log('Test result - data:', data);
+                console.log('Test result - error:', error);
+                if (error) {
+                    console.error('Connection test failed:', error.message);
+                    alert('Database connection test failed: ' + error.message);
+                } else {
+                    console.log('Connection successful! Found pins:', data);
+                }
+            } catch (e) {
+                console.error('Connection test exception:', e);
+            }
+        }
+
+        // Supabase Database Functions
+        async function loadPinsFromDB() {
+            try {
+                const { data, error } = await db
+                    .from('pins')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) {
+                    console.error('Load error details:', error);
+                    throw error;
+                }
+                // Convert database format to app format
+                pins = (data || []).map(pin => ({
+                    id: pin.id,
+                    name: pin.name,
+                    description: pin.description,
+                    lng: pin.longitude,
+                    lat: pin.latitude,
+                    photo: pin.photo_url
+                }));
+                renderPins();
+            } catch (error) {
+                console.error('Error loading pins:', error.message, error);
+                alert('Failed to load locations from database. Check console for details.');
+            }
+        }
+
+        async function savePinToDB(pin) {
+            try {
+                console.log('Attempting to save pin:', pin);
+                const { data, error } = await db
+                    .from('pins')
+                    .insert([{
+                        name: pin.name,
+                        description: pin.description,
+                        longitude: pin.lng,
+                        latitude: pin.lat,
+                        photo_url: pin.photo
+                    }])
+                    .select();
+
+                if (error) {
+                    console.error('Save error details:', error);
+                    throw error;
+                }
+                console.log('Save successful:', data);
+                // Convert database format to app format
+                const newPin = {
+                    id: data[0].id,
+                    name: data[0].name,
+                    description: data[0].description,
+                    lng: data[0].longitude,
+                    lat: data[0].latitude,
+                    photo: data[0].photo_url
+                };
+                pins.push(newPin);
+                renderPins();
+                setMode('browse');
+            } catch (error) {
+                console.error('Error saving pin:', error.message, error);
+                alert('Failed to save location to database. Error: ' + error.message + '. Check console for details.');
+            }
+        }
+
+        async function updatePinInDB(pinId, updates) {
+            try {
+                // Convert app format to database format
+                const dbUpdates = {};
+                if (updates.name !== undefined) dbUpdates.name = updates.name;
+                if (updates.description !== undefined) dbUpdates.description = updates.description;
+                if (updates.photo !== undefined) dbUpdates.photo_url = updates.photo;
+
+                const { data, error } = await db
+                    .from('pins')
+                    .update(dbUpdates)
+                    .eq('id', pinId)
+                    .select();
+
+                if (error) throw error;
+
+                const pinIndex = pins.findIndex(p => p.id === pinId);
+                if (pinIndex !== -1) {
+                    // Convert database format to app format
+                    pins[pinIndex] = {
+                        id: data[0].id,
+                        name: data[0].name,
+                        description: data[0].description,
+                        lng: data[0].longitude,
+                        lat: data[0].latitude,
+                        photo: data[0].photo_url
+                    };
+                }
+                renderPins();
+            } catch (error) {
+                console.error('Error updating pin:', error);
+                alert('Failed to update location in database');
+            }
+        }
+
+        async function deletePinFromDB(pinId) {
+            try {
+                const { error } = await db
+                    .from('pins')
+                    .delete()
+                    .eq('id', pinId);
+
+                if (error) throw error;
+
+                pins = pins.filter(pin => pin.id !== pinId);
+                renderPins();
+            } catch (error) {
+                console.error('Error deleting pin:', error);
+                alert('Failed to delete location from database');
+            }
+        }
+
+        // Initialize Mapbox using config
+        mapboxgl.accessToken = CONFIG.mapbox.accessToken;
+
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/standard',
+            center: CONFIG.map.center,
+            zoom: CONFIG.map.zoom,
+            maxBounds: CONFIG.map.bounds,
+            minZoom: CONFIG.map.minZoom,
+            maxZoom: CONFIG.map.maxZoom,
+            pitch: CONFIG.map.pitch,
+            bearing: CONFIG.map.bearing
+        });
+
+        // Function to get appropriate light preset based on NY time
+        function getLightPresetForNYTime() {
+            // Get current time in New York
+            const nyTime = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+            const nyDate = new Date(nyTime);
+            const hour = nyDate.getHours();
+
+            // Determine light preset based on time
+            // Dawn: 5am-8am, Day: 8am-5pm, Dusk: 5pm-8pm, Night: 8pm-5am
+            if (hour >= 5 && hour < 8) {
+                return 'dawn';
+            } else if (hour >= 8 && hour < 17) {
+                return 'day';
+            } else if (hour >= 17 && hour < 20) {
+                return 'dusk';
+            } else {
+                return 'night';
+            }
+        }
+
+        // Set lighting preset after map loads
+        map.on('style.load', () => {
+            const lightPreset = getLightPresetForNYTime();
+            console.log('Setting light preset to:', lightPreset);
+            map.setConfigProperty('basemap', 'lightPreset', lightPreset);
+            map.setConfigProperty('basemap', 'showBuildings', false);
+        });
+
+        // Mode Toggle
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.mode;
+                setMode(mode);
+            });
+        });
+
+        function setMode(mode) {
+            currentMode = mode;
+            modeBtns.forEach(btn => {
+                if (btn.dataset.mode === mode) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            if (mode === 'add') {
+                mapContainer.style.cursor = 'crosshair';
+                sidebar.classList.add('visible'); // Show sidebar in add mode
+                sidebar.style.width = sidebar.style.width || '220px'; // Restore width if not set (narrower default)
+                sidebarToggle.classList.remove('visible'); // Hide toggle when sidebar is shown
+            } else {
+                mapContainer.style.cursor = 'default';
+                sidebar.classList.remove('visible');
+                sidebarToggle.classList.remove('visible'); // Hide toggle in browse mode
+            }
+
+            // Hide mode indicator completely
+            modeIndicator.style.display = 'none';
+        }
+
+        // Map Click Handler
+        map.on('click', (e) => {
+            if (currentMode !== 'add') return;
+
+            const { lng, lat } = e.lngLat;
+            tempPinPosition = { lng, lat };
+            openForm(e.point);
+        });
+
+        // Form Handlers
+        function openForm(clickPoint, pinToEdit = null) {
+            formModal.classList.add('active');
+
+            if (pinToEdit) {
+                // Edit mode
+                editingPinId = pinToEdit.id;
+                formTitle.textContent = 'Edit Location';
+                document.getElementById('pinName').value = pinToEdit.name;
+                document.getElementById('pinDescription').value = pinToEdit.description || '';
+                if (pinToEdit.photo) {
+                    imagePreview.src = pinToEdit.photo;
+                    imagePreview.style.display = 'block';
+                }
+            } else {
+                // Add mode
+                editingPinId = null;
+                formTitle.textContent = 'Post whatever you want!';
+                pinForm.reset();
+                imagePreview.style.display = 'none';
+            }
+            // Form is now centered automatically via CSS flexbox
+        }
+
+        function closeForm() {
+            formModal.classList.remove('active');
+            tempPinPosition = null;
+            editingPinId = null;
+        }
+
+        cancelBtn.addEventListener('click', closeForm);
+
+        formModal.addEventListener('click', (e) => {
+            if (e.target === formModal) {
+                closeForm();
+            }
+        });
+
+        // Photo Preview
+        photoInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                    imagePreview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Form Submit
+        pinForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const name = document.getElementById('pinName').value;
+            const description = document.getElementById('pinDescription').value;
+            const photoFile = photoInput.files[0];
+
+            if (editingPinId) {
+                // Edit existing pin
+                const updates = {
+                    name,
+                    description
+                };
+
+                if (photoFile) {
+                    const fileName = `pin-${Date.now()}.${photoFile.name.split('.').pop()}`;
+                    const { data, error } = await db.storage.from('photos').upload(fileName, photoFile);
+                    if (!error) {
+                        const { data: urlData } = db.storage.from('photos').getPublicUrl(fileName);
+                        updates.photo = urlData.publicUrl;
+                    }
+                    await updatePinInDB(editingPinId, updates);
+                    closeForm();
+                } else {
+                    // Keep existing photo if no new file selected
+                    await updatePinInDB(editingPinId, updates);
+                    closeForm();
+                }
+            } else {
+                // Add new pin
+                if (!tempPinPosition) return;
+
+                const pin = {
+                    name,
+                    description,
+                    lng: tempPinPosition.lng,
+                    lat: tempPinPosition.lat,
+                    photo: null
+                };
+
+                if (photoFile) {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        pin.photo = e.target.result;
+                        await savePinToDB(pin);
+                        closeForm();
+                    };
+                    reader.readAsDataURL(photoFile);
+                } else {
+                    await savePinToDB(pin);
+                    closeForm();
+                }
+            }
+        });
+
+        // Render Pins
+        function renderPins() {
+            // Clear existing markers
+            markers.forEach(({ marker }) => marker.remove());
+            markers = [];
+
+            // Render pins on map using Mapbox markers
+            pins.forEach(pin => {
+                // Create marker element
+                const el = document.createElement('div');
+                el.className = pin.photo ? 'pin has-photo' : 'pin';
+                el.dataset.pinId = pin.id;
+
+                // If pin has photo, show the photo; otherwise show default red pin
+                if (pin.photo) {
+                    el.innerHTML = `<img src="${pin.photo}" alt="${pin.name}">`;
+                } else {
+                    el.innerHTML = `
+                        <svg viewBox="0 0 24 24" fill="#e74c3c">
+                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                        </svg>
+                    `;
+                }
+
+                // Create popup HTML
+                let popupHTML = '<div class="popup-content">';
+                if (pin.photo) {
+                    popupHTML += `<img src="${pin.photo}" alt="${pin.name}">`;
+                }
+                popupHTML += `<h3>${pin.name}</h3>`;
+                if (pin.description) {
+                    popupHTML += `<p>${pin.description}</p>`;
+                }
+                popupHTML += '</div>';
+
+                // Create popup
+                const popup = new mapboxgl.Popup({
+                    offset: 25,
+                    closeButton: true,
+                    closeOnClick: false
+                }).setHTML(popupHTML);
+
+                // Create and add Mapbox marker with popup
+                const marker = new mapboxgl.Marker(el)
+                    .setLngLat([pin.lng, pin.lat])
+                    .setPopup(popup)
+                    .addTo(map);
+
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    highlightPin(pin.id);
+                    // Toggle popup on click
+                    marker.togglePopup();
+                });
+
+                markers.push({ marker, id: pin.id });
+            });
+
+            // Render sidebar list
+            if (pins.length === 0) {
+                pinsList.innerHTML = '<div class="empty-state">No locations saved yet. Switch to Add Mode and click on the map to add a pin!</div>';
+            } else {
+                pinsList.innerHTML = pins.map(pin => `
+                    <div class="pin-card" data-pin-id="${pin.id}">
+                        <h3>${pin.name}</h3>
+                        ${pin.description ? `<p>${pin.description}</p>` : ''}
+                        ${pin.photo ? `<img src="${pin.photo}" alt="${pin.name}">` : ''}
+                        <div class="action-buttons">
+                            <button class="edit-btn" onclick="editPin(${pin.id})">Edit</button>
+                            <button class="delete-btn" onclick="deletePin(${pin.id})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+
+                // Add click handlers to cards
+                document.querySelectorAll('.pin-card').forEach(card => {
+                    card.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('delete-btn') || e.target.classList.contains('edit-btn')) return;
+                        const pinId = parseInt(card.dataset.pinId);
+                        highlightPin(pinId);
+                    });
+                });
+            }
+        }
+
+        function highlightPin(pinId) {
+            highlightedPinId = pinId;
+
+            // Highlight map pin
+            markers.forEach(({ marker, id }) => {
+                const el = marker.getElement();
+                if (id === pinId) {
+                    el.classList.add('highlighted');
+                } else {
+                    el.classList.remove('highlighted');
+                }
+            });
+
+            // Highlight card
+            document.querySelectorAll('.pin-card').forEach(card => {
+                if (parseInt(card.dataset.pinId) === pinId) {
+                    card.classList.add('highlighted');
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                } else {
+                    card.classList.remove('highlighted');
+                }
+            });
+        }
+
+        window.editPin = function (pinId) {
+            const pin = pins.find(p => p.id === pinId);
+            if (pin) {
+                // Open form at center of screen for edit
+                const clickPoint = {
+                    x: window.innerWidth / 2,
+                    y: window.innerHeight / 2
+                };
+                openForm(clickPoint, pin);
+            }
+        }
+
+        window.deletePin = async function (pinId) {
+            if (confirm('Are you sure you want to delete this location?')) {
+                await deletePinFromDB(pinId);
+            }
+        }
+
+        // Initialize - Load pins from database
+        testConnection(); // Test first
+        loadPinsFromDB();
+        setMode('browse');
+
+        // Sidebar toggle button
+        sidebarToggle.addEventListener('click', () => {
+            if (currentMode === 'add') {
+                sidebar.classList.add('visible');
+                sidebar.style.width = '220px'; // Reset to default width (narrower)
+                sidebarToggle.classList.remove('visible');
+            }
+        });
+
+        // Sidebar resize functionality
+        const resizeHandle = document.getElementById('sidebarResizeHandle');
+        let isResizing = false;
+        let startX = 0;
+        let startWidth = 0;
+
+        resizeHandle.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = sidebar.offsetWidth;
+            sidebar.classList.add('resizing');
+            document.body.style.cursor = 'ew-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+
+            // Calculate new width (drag left to make wider, right to make narrower)
+            const deltaX = startX - e.clientX;
+            const newWidth = startWidth + deltaX;
+
+            // Apply constraints
+            const minWidth = 0; // Allow to go to 0
+            const maxWidth = 600;
+            const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+
+            // If width is very small (less than 50px), hide the sidebar
+            if (constrainedWidth < 50) {
+                sidebar.style.width = '0px';
+                sidebar.classList.remove('visible');
+                if (currentMode === 'add') {
+                    sidebarToggle.classList.add('visible');
+                }
+            } else {
+                sidebar.style.width = constrainedWidth + 'px';
+                sidebarToggle.classList.remove('visible');
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                sidebar.classList.remove('resizing');
+                document.body.style.cursor = '';
+            }
+        });
+    </script>
+</body>
+
+</html>
